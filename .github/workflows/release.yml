@@ -72,24 +72,26 @@ jobs:
           chmod +x AppDir/usr/bin/Voyager
 
           mkdir -p AppDir/usr/share/applications
-          cat > AppDir/usr/share/applications/voyager.desktop <<EOF
+          cat > AppDir/usr/share/applications/voyager.desktop << 'DESKTOP'
           [Desktop Entry]
           Name=Voyager
           Exec=Voyager
           Icon=voyager
           Type=Application
           Categories=Utility;
-          EOF
+          DESKTOP
+          sed -i 's/^[[:space:]]*//' AppDir/usr/share/applications/voyager.desktop
 
           cp build/appicon.png AppDir/voyager.png
 
-          cat > AppDir/AppRun <<'SCRIPT'
+          cat > AppDir/AppRun << 'APPRUN'
           #!/bin/sh
           SELF=$(readlink -f "$0")
           HERE=${SELF%/*}
           export PATH="${HERE}/usr/bin:${PATH}"
           exec "${HERE}/usr/bin/Voyager" "$@"
-          SCRIPT
+          APPRUN
+          sed -i 's/^[[:space:]]*//' AppDir/AppRun
           chmod +x AppDir/AppRun
 
           curl -fsSL -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
