@@ -71,16 +71,14 @@ jobs:
           cp build/bin/Voyager AppDir/usr/bin/
           chmod +x AppDir/usr/bin/Voyager
 
-          mkdir -p AppDir/usr/share/applications
-          cat > AppDir/usr/share/applications/voyager.desktop << 'DESKTOP'
-          [Desktop Entry]
-          Name=Voyager
-          Exec=Voyager
-          Icon=voyager
-          Type=Application
-          Categories=Utility;
-          DESKTOP
-          sed -i 's/^[[:space:]]*//' AppDir/usr/share/applications/voyager.desktop
+          printf '%s\n' \
+            '[Desktop Entry]' \
+            'Name=Voyager' \
+            'Exec=Voyager' \
+            'Icon=voyager' \
+            'Type=Application' \
+            'Categories=Utility;' \
+            > AppDir/voyager.desktop
 
           cp build/appicon.png AppDir/voyager.png
 
