@@ -18,6 +18,8 @@ export function ListFiles(arg1:string,arg2:string):Promise<Array<domain.RemoteEn
 
 export function ListTransferTasks():Promise<Array<domain.TransferTask>>;
 
+export function PathExists(arg1:string):Promise<boolean>;
+
 export function PickDownloadDirectory():Promise<string>;
 
 export function PickUploadFiles():Promise<Array<string>>;

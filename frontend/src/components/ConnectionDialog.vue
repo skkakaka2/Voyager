@@ -97,8 +97,8 @@ function submit() {
         </el-form-item>
       </template>
 
-      <el-form-item v-if="form.protocol === 'smb'" label="共享名" required>
-        <el-input v-model="form.share" placeholder="share" />
+      <el-form-item v-if="form.protocol === 'smb'" label="共享名">
+        <el-input v-model="form.share" placeholder="留空则浏览服务器共享列表" />
       </el-form-item>
 
       <el-form-item label="远端根路径">

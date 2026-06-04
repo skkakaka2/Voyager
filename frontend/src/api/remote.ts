@@ -3,6 +3,7 @@ import {
   DeleteEntry,
   DownloadFile,
   ListFiles,
+  PathExists,
   PickDownloadDirectory,
   PickUploadFiles,
   RenameEntry,
@@ -37,6 +38,10 @@ export function uploadFiles(connectionId: string, remoteDir: string, localPaths:
 
 export function pickDownloadDirectory(): Promise<string> {
   return PickDownloadDirectory()
+}
+
+export function pathExists(path: string): Promise<boolean> {
+  return PathExists(path)
 }
 
 export function downloadFile(

@@ -188,47 +188,51 @@ func (s *ConnectionService) GetConnectionPassword(ctx context.Context, id string
 func (s *ConnectionService) TestConnection(ctx context.Context, input domain.ConnectionInput) error {
 	adapter, err := s.adapterForInput(ctx, input)
 	if err != nil {
-		return err
+		return localizeError(err)
 	}
-	return adapter.Test(ctx)
+	return localizeError(adapter.Test(ctx))
 }
 
 func (s *ConnectionService) ListFiles(ctx context.Context, connectionID string, path string) ([]domain.RemoteEntry, error) {
 	adapter, err := s.adapterForConnection(ctx, connectionID)
 	if err != nil {
-		return nil, err
+		return nil, localizeError(err)
 	}
-	return adapter.List(ctx, path)
+	entries, err := adapter.List(ctx, path)
+	if err != nil {
+		return nil, localizeError(err)
+	}
+	return entries, nil
 }
 
 func (s *ConnectionService) CreateFolder(ctx context.Context, connectionID string, parentPath string, name string) error {
 	adapter, err := s.adapterForConnection(ctx, connectionID)
 	if err != nil {
-		return err
+		return localizeError(err)
 	}
-	return adapter.Mkdir(ctx, childRemotePath(parentPath, name))
+	return localizeError(adapter.Mkdir(ctx, childRemotePath(parentPath, name)))
 }
 
 func (s *ConnectionService) RenameEntry(ctx context.Context, connectionID string, oldPath string, newName string) error {
 	adapter, err := s.adapterForConnection(ctx, connectionID)
 	if err != nil {
-		return err
+		return localizeError(err)
 	}
 	oldPath = cleanServicePath(oldPath)
-	return adapter.Rename(ctx, oldPath, childRemotePath(pathpkg.Dir(oldPath), newName))
+	return localizeError(adapter.Rename(ctx, oldPath, childRemotePath(pathpkg.Dir(oldPath), newName)))
 }
 
 func (s *ConnectionService) DeleteEntry(ctx context.Context, connectionID string, path string) error {
 	adapter, err := s.adapterForConnection(ctx, connectionID)
 	if err != nil {
-		return err
+		return localizeError(err)
 	}
-	return adapter.Delete(ctx, cleanServicePath(path))
+	return localizeError(adapter.Delete(ctx, cleanServicePath(path)))
 }
 
 func (s *ConnectionService) UploadFiles(ctx context.Context, connectionID string, remoteDir string, localPaths []string) ([]domain.TransferTask, error) {
 	if _, err := s.adapterForConnection(ctx, connectionID); err != nil {
-		return nil, err
+		return nil, localizeError(err)
 	}
 
 	tasks := make([]domain.TransferTask, 0, len(localPaths))
@@ -247,9 +251,9 @@ func (s *ConnectionService) UploadFiles(ctx context.Context, connectionID string
 		s.startTransferTask(task, func(runCtx context.Context, progress filesystem.ProgressFunc) (int64, error) {
 			adapter, err := s.adapterForConnection(runCtx, connectionID)
 			if err != nil {
-				return 0, err
+				return 0, localizeError(err)
 			}
-			return task.BytesTotal, adapter.Upload(runCtx, task.Source, task.Destination, progress)
+			return task.BytesTotal, localizeError(adapter.Upload(runCtx, task.Source, task.Destination, progress))
 		})
 	}
 
@@ -258,7 +262,7 @@ func (s *ConnectionService) UploadFiles(ctx context.Context, connectionID string
 
 func (s *ConnectionService) DownloadFile(ctx context.Context, connectionID string, remotePath string, localDir string, bytesTotal int64) (domain.TransferTask, error) {
 	if _, err := s.adapterForConnection(ctx, connectionID); err != nil {
-		return domain.TransferTask{}, err
+		return domain.TransferTask{}, localizeError(err)
 	}
 
 	cleanedRemotePath := cleanServicePath(remotePath)
@@ -272,9 +276,9 @@ func (s *ConnectionService) DownloadFile(ctx context.Context, connectionID strin
 	s.startTransferTask(task, func(runCtx context.Context, progress filesystem.ProgressFunc) (int64, error) {
 		adapter, err := s.adapterForConnection(runCtx, connectionID)
 		if err != nil {
-			return 0, err
+			return 0, localizeError(err)
 		}
-		if err := adapter.Download(runCtx, task.Source, task.Destination, progress); err != nil {
+		if err := localizeError(adapter.Download(runCtx, task.Source, task.Destination, progress)); err != nil {
 			return 0, err
 		}
 		if bytesTotal > 0 {
@@ -476,7 +480,7 @@ func (s *ConnectionService) startTransferTask(task domain.TransferTask, run func
 				status = domain.TransferCanceled
 			} else {
 				status = domain.TransferFailed
-				errorMessage = err.Error()
+				errorMessage = localizeErrorMessage(err.Error())
 			}
 		}
 		s.finishTransferTask(task.ID, status, bytesTotal, errorMessage)

@@ -91,6 +91,10 @@ func (a *App) PickDownloadDirectory() (string, error) {
 	})
 }
 
+func (a *App) PathExists(path string) (bool, error) {
+	return appsvc.PathExists(path)
+}
+
 func (a *App) DownloadFile(connectionID string, remotePath string, localDir string, bytesTotal int64) (domain.TransferTask, error) {
 	runtime.LogInfof(a.callContext(), "DownloadFile called: connection=%s remotePath=%s localDir=%s bytesTotal=%d", connectionID, remotePath, localDir, bytesTotal)
 	return a.connections.DownloadFile(a.callContext(), connectionID, remotePath, localDir, bytesTotal)

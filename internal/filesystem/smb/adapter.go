@@ -2,11 +2,13 @@ package smb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	pathpkg "path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,14 +19,17 @@ import (
 	"voyager/internal/filesystem/transferio"
 )
 
+var errShareRequired = errors.New("请先进入一个 SMB 共享")
+
 type Adapter struct {
-	address   string
-	host      string
-	shareName string
-	username  string
-	password  string
-	domain    string
-	rootPath  string
+	address        string
+	host           string
+	shareName      string
+	username       string
+	password       string
+	domain         string
+	rootPath       string
+	listShareNames func(context.Context) ([]string, error)
 }
 
 func NewAdapter(input domain.ConnectionInput) *Adapter {
@@ -45,7 +50,16 @@ func NewAdapter(input domain.ConnectionInput) *Adapter {
 }
 
 func (a *Adapter) Test(ctx context.Context) error {
-	share, cleanup, err := a.connectShare(ctx)
+	if a.shareName == "" {
+		_, cleanup, err := a.connectSession(ctx)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		return nil
+	}
+
+	share, cleanup, err := a.connectNamedShare(ctx, a.shareName)
 	if err != nil {
 		return err
 	}
@@ -59,13 +73,38 @@ func (a *Adapter) Test(ctx context.Context) error {
 }
 
 func (a *Adapter) List(ctx context.Context, path string) ([]domain.RemoteEntry, error) {
-	share, cleanup, err := a.connectShare(ctx)
+	if a.shareName == "" && cleanRemotePath(path) == "/" {
+		names, err := a.serverShareNames(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(names)
+		entries := make([]domain.RemoteEntry, 0, len(names))
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if name == "" || strings.HasSuffix(name, "$") {
+				continue
+			}
+			entries = append(entries, domain.RemoteEntry{
+				Name: name,
+				Path: entryPath("/", name),
+				Type: domain.EntryDirectory,
+			})
+		}
+		return entries, nil
+	}
+
+	shareName, sharePath, err := a.resolveSharePath(path)
+	if err != nil {
+		return nil, err
+	}
+	share, cleanup, err := a.connectNamedShare(ctx, shareName)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	infos, err := share.ReadDir(a.sharePath(path))
+	infos, err := share.ReadDir(sharePath)
 	if err != nil {
 		return nil, err
 	}
@@ -92,31 +131,49 @@ func (a *Adapter) List(ctx context.Context, path string) ([]domain.RemoteEntry, 
 }
 
 func (a *Adapter) Mkdir(ctx context.Context, path string) error {
-	share, cleanup, err := a.connectShare(ctx)
+	shareName, sharePath, err := a.resolveWritableSharePath(path)
+	if err != nil {
+		return err
+	}
+	share, cleanup, err := a.connectNamedShare(ctx, shareName)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return share.Mkdir(a.sharePath(path), 0o755)
+	return share.Mkdir(sharePath, 0o755)
 }
 
 func (a *Adapter) Rename(ctx context.Context, oldPath string, newPath string) error {
-	share, cleanup, err := a.connectShare(ctx)
+	oldShareName, oldSharePath, err := a.resolveWritableSharePath(oldPath)
+	if err != nil {
+		return err
+	}
+	newShareName, newSharePath, err := a.resolveWritableSharePath(newPath)
+	if err != nil {
+		return err
+	}
+	if oldShareName != newShareName {
+		return errors.New("不能跨 SMB 共享重命名")
+	}
+	share, cleanup, err := a.connectNamedShare(ctx, oldShareName)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return share.Rename(a.sharePath(oldPath), a.sharePath(newPath))
+	return share.Rename(oldSharePath, newSharePath)
 }
 
 func (a *Adapter) Delete(ctx context.Context, path string) error {
-	share, cleanup, err := a.connectShare(ctx)
+	shareName, sharePath, err := a.resolveWritableSharePath(path)
+	if err != nil {
+		return err
+	}
+	share, cleanup, err := a.connectNamedShare(ctx, shareName)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	sharePath := a.sharePath(path)
 	if err := share.Remove(sharePath); err == nil {
 		return nil
 	}
@@ -127,19 +184,23 @@ func (a *Adapter) Upload(ctx context.Context, localPath string, remotePath strin
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	shareName, sharePath, err := a.resolveWritableSharePath(remotePath)
+	if err != nil {
+		return err
+	}
 	localFile, err := os.Open(localPath)
 	if err != nil {
 		return err
 	}
 	defer localFile.Close()
 
-	share, cleanup, err := a.connectShare(ctx)
+	share, cleanup, err := a.connectNamedShare(ctx, shareName)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	remoteFile, err := share.Create(a.sharePath(remotePath))
+	remoteFile, err := share.Create(sharePath)
 	if err != nil {
 		return err
 	}
@@ -151,13 +212,17 @@ func (a *Adapter) Upload(ctx context.Context, localPath string, remotePath strin
 }
 
 func (a *Adapter) Download(ctx context.Context, remotePath string, localPath string, progress func(bytesDone int64)) error {
-	share, cleanup, err := a.connectShare(ctx)
+	shareName, sharePath, err := a.resolveWritableSharePath(remotePath)
+	if err != nil {
+		return err
+	}
+	share, cleanup, err := a.connectNamedShare(ctx, shareName)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	remoteFile, err := share.Open(a.sharePath(remotePath))
+	remoteFile, err := share.Open(sharePath)
 	if err != nil {
 		return err
 	}
@@ -180,7 +245,7 @@ func (a *Adapter) Download(ctx context.Context, remotePath string, localPath str
 	return os.Rename(tmpPath, localPath)
 }
 
-func (a *Adapter) connectShare(ctx context.Context) (*smb2.Share, func(), error) {
+func (a *Adapter) connectSession(ctx context.Context) (*smb2.Session, func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -200,18 +265,88 @@ func (a *Adapter) connectShare(ctx context.Context) (*smb2.Share, func(), error)
 		return nil, nil, err
 	}
 
-	share, err := session.WithContext(ctx).Mount(fmt.Sprintf(`\\%s\%s`, a.host, a.shareName))
-	if err != nil {
+	cleanup := func() {
 		_ = session.Logoff()
 		_ = tcpConn.Close()
+	}
+	return session.WithContext(ctx), cleanup, nil
+}
+
+func (a *Adapter) connectNamedShare(ctx context.Context, shareName string) (*smb2.Share, func(), error) {
+	if strings.TrimSpace(shareName) == "" {
+		return nil, nil, errShareRequired
+	}
+	session, sessionCleanup, err := a.connectSession(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	share, err := session.Mount(fmt.Sprintf(`\\%s\%s`, a.host, shareName))
+	if err != nil {
+		sessionCleanup()
 		return nil, nil, err
 	}
 	cleanup := func() {
 		_ = share.Umount()
-		_ = session.Logoff()
-		_ = tcpConn.Close()
+		sessionCleanup()
 	}
 	return share.WithContext(ctx), cleanup, nil
+}
+
+func (a *Adapter) serverShareNames(ctx context.Context) ([]string, error) {
+	if a.listShareNames != nil {
+		return a.listShareNames(ctx)
+	}
+	session, cleanup, err := a.connectSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return session.ListSharenames()
+}
+
+func (a *Adapter) resolveSharePath(path string) (string, string, error) {
+	if a.shareName != "" {
+		return a.shareName, a.sharePath(path), nil
+	}
+
+	cleaned := cleanRemotePath(path)
+	if cleaned == "/" {
+		return "", "", errShareRequired
+	}
+	parts := strings.SplitN(strings.Trim(cleaned, "/"), "/", 2)
+	shareName := strings.TrimSpace(parts[0])
+	if shareName == "" {
+		return "", "", errShareRequired
+	}
+	sharePath := ""
+	if len(parts) > 1 {
+		sharePath = cleanSharePath(parts[1])
+	}
+	if a.rootPath == "" {
+		return shareName, sharePath, nil
+	}
+	if sharePath == "" {
+		return shareName, a.rootPath, nil
+	}
+	return shareName, pathpkg.Join(a.rootPath, sharePath), nil
+}
+
+func (a *Adapter) resolveWritableSharePath(path string) (string, string, error) {
+	shareName, sharePath, err := a.resolveSharePath(path)
+	if err != nil {
+		return "", "", err
+	}
+	if a.shareName == "" {
+		cleaned := strings.Trim(cleanRemotePath(path), "/")
+		if sharePath == "" || !strings.Contains(cleaned, "/") {
+			return "", "", errShareRequired
+		}
+	}
+	if shareName == "" {
+		return "", "", errShareRequired
+	}
+	return shareName, sharePath, nil
 }
 
 func (a *Adapter) sharePath(path string) string {

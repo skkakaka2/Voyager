@@ -682,6 +682,111 @@ func TestDownloadFileRecordsSucceededTask(t *testing.T) {
 	})
 }
 
+func TestListFilesLocalizesAdapterErrors(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "connections.json")
+	adapter := &fakeAdapter{err: errors.New("response error: {Network Name Not Found} The specified share name cannot be found on the remote server")}
+	service := NewConnectionService(
+		config.NewConnectionStore(storePath),
+		&fakeCredentialStore{},
+		&fakeAdapterFactory{adapter: adapter},
+	)
+
+	profile, err := service.SaveConnection(context.Background(), domain.ConnectionInput{
+		Name:     "NAS",
+		Protocol: domain.ProtocolSMB,
+		Host:     "nas.home",
+	})
+	if err != nil {
+		t.Fatalf("SaveConnection returned error: %v", err)
+	}
+
+	_, err = service.ListFiles(context.Background(), profile.ID, "/")
+	if err == nil {
+		t.Fatal("expected localized error")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "SMB 共享名不存在") || !strings.Contains(message, "Network Name Not Found") {
+		t.Fatalf("expected localized SMB share error with raw suffix, got %q", message)
+	}
+}
+
+func TestLocalizeErrorMapsCommonProtocolErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "smb auth",
+			err:  errors.New("response error: The attempted logon is invalid. This is either due to a bad username or authentication information."),
+			want: "SMB 账号或密码错误",
+		},
+		{
+			name: "smb share",
+			err:  errors.New("response error: {Network Name Not Found} The specified share name cannot be found on the remote server."),
+			want: "SMB 共享名不存在",
+		},
+		{
+			name: "webdav certificate",
+			err:  errors.New(`Options "https://fnOS:5006/": tls: failed to verify certificate: x509: certificate signed by unknown authority`),
+			want: "TLS 证书不受信任",
+		},
+		{
+			name: "ftp login",
+			err:  errors.New("530 Login incorrect"),
+			want: "FTP 登录失败",
+		},
+		{
+			name: "network",
+			err:  errors.New("dial tcp 192.0.2.1:445: connect: network is unreachable"),
+			want: "网络连接失败",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := localizeError(tt.err)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			message := err.Error()
+			if !strings.Contains(message, tt.want) || !strings.Contains(message, tt.err.Error()) {
+				t.Fatalf("expected %q and raw error in %q", tt.want, message)
+			}
+		})
+	}
+}
+
+func TestPathExists(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(filePath, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "file", path: filePath, want: true},
+		{name: "missing", path: filepath.Join(dir, "missing.txt"), want: false},
+		{name: "directory", path: dir, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := PathExists(tt.path)
+			if err != nil {
+				t.Fatalf("PathExists returned error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected %v, got %v", tt.want, got)
+			}
+		})
+	}
+}
+
 func eventually(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

@@ -254,11 +254,12 @@ async function uploadFiles() {
 }
 
 async function downloadSelectedEntry() {
-  if (!remote.selectedEntry) {
+  const selectedEntry = remote.selectedEntry
+  if (!selectedEntry) {
     ElMessage.warning('请先选择要下载的文件')
     return
   }
-  if (remote.selectedEntry.type === 'directory') {
+  if (selectedEntry.type === 'directory') {
     ElMessage.warning('暂不支持下载文件夹，请选择文件')
     return
   }
@@ -267,11 +268,24 @@ async function downloadSelectedEntry() {
     if (!localDir) {
       return
     }
-    await remote.downloadFile(remote.selectedEntry, localDir)
+    const trimmedLocalDir = localDir.replace(/[\\/]+$/, '')
+    const separator = localDir.includes('\\') ? '\\' : '/'
+    const targetPath = `${trimmedLocalDir}${separator}${selectedEntry.name}`
+    if (await remoteApi.pathExists(targetPath)) {
+      await ElMessageBox.confirm(`本地已存在“${selectedEntry.name}”，确定覆盖吗？`, '覆盖确认', {
+        confirmButtonText: '覆盖',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+    }
+    await remote.downloadFile(selectedEntry, localDir)
     await transfers.load()
     startTransferPolling()
     ElMessage.success('下载任务已开始')
   } catch (error) {
+    if (error === 'cancel' || error === 'close') {
+      return
+    }
     await transfers.load()
     ElMessage.error(errorMessage(error, '下载失败'))
   }

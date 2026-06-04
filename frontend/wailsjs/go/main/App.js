@@ -34,6 +34,10 @@ export function ListTransferTasks() {
   return window['go']['main']['App']['ListTransferTasks']();
 }
 
+export function PathExists(arg1) {
+  return window['go']['main']['App']['PathExists'](arg1);
+}
+
 export function PickDownloadDirectory() {
   return window['go']['main']['App']['PickDownloadDirectory']();
 }
