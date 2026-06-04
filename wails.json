@@ -1,0 +1,49 @@
+{
+  "name": "Voyager",
+  "frontend:build": "npm run build",
+  "frontend:install": "npm install",
+  "frontend:dev": "",
+  "frontend:dev:build": "",
+  "frontend:dev:install": "",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "/media/aaa/新加卷/Workzone/Voyager/frontend",
+  "version": "2",
+  "projectdir": "/media/aaa/新加卷/Workzone/Voyager",
+  "build:dir": "build",
+  "build:tags": "webkit2_41",
+  "outputfilename": "Voyager",
+  "OutputType": "",
+  "Platform": "",
+  "runNonNativeBuildHooks": false,
+  "postBuildHooks": null,
+  "preBuildHooks": null,
+  "Author": {
+    "name": "zeyu.wang",
+    "email": "zeyu.wang@dyness-tech.com"
+  },
+  "Info": {
+    "companyName": "Voyager",
+    "productName": "Voyager",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright.........",
+    "comments": "Built using Wails (https://wails.io)",
+    "fileAssociations": null,
+    "protocols": null
+  },
+  "debounceMS": 100,
+  "devServer": "localhost:34115",
+  "appargs": "",
+  "nsisType": "multiple",
+  "obfuscated": false,
+  "garbleargs": "",
+  "frontend:dir": "frontend",
+  "viteServerTimeout": 10,
+  "bindings": {
+    "ts_generation": {
+      "prefix": "",
+      "suffix": "",
+      "outputType": ""
+    }
+  }
+}
