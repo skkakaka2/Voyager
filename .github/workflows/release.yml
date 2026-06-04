@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Build
+        run: wails build -tags webkit2_41
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voyager-windows
+          path: build/bin/*
+
+  build-linux:
+    name: Build Linux AppImage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Build
+        run: wails build -tags webkit2_41 -platform linux/amd64
+
+      - name: Prepare AppImage
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp build/bin/Voyager AppDir/usr/bin/
+          chmod +x AppDir/usr/bin/Voyager
+
+          mkdir -p AppDir/usr/share/applications
+          cat > AppDir/usr/share/applications/voyager.desktop <<EOF
+          [Desktop Entry]
+          Name=Voyager
+          Exec=Voyager
+          Icon=voyager
+          Type=Application
+          Categories=Utility;
+          EOF
+
+          cp build/appicon.png AppDir/voyager.png
+
+          cat > AppDir/AppRun <<'SCRIPT'
+          #!/bin/sh
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/usr/bin:${PATH}"
+          exec "${HERE}/usr/bin/Voyager" "$@"
+          SCRIPT
+          chmod +x AppDir/AppRun
+
+          curl -fsSL -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ./appimagetool AppDir Voyager-x86_64.AppImage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voyager-linux-appimage
+          path: Voyager-x86_64.AppImage
+
+  release:
+    name: Create Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/Voyager-windows/**
+            artifacts/Voyager-linux-appimage/**
